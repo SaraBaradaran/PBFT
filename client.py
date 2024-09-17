@@ -9,7 +9,9 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.asymmetric import utils
 from cryptography.hazmat.primitives import serialization
-GREEN = "\033[92m"; RED = "\033[91m"; RESET = "\033[0m"
+GREEN = "\033[92m"; RED = "\033[91m"; BLUE = "\033[34m"; RESET = "\033[0m"
+
+max_faulty_nodes = 0
 
 class Client:
     def __init__(self, client_id):
@@ -35,15 +37,12 @@ class Client:
     def verify_signature(self, public_key, string_message, signature_base64):
         try:
             byte_message = string_message.encode('utf-8')
-            print(1)
             signature = base64.b64decode(signature_base64.encode('utf-8'))
-            print(2)
             public_key.verify(signature, byte_message,
                     padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
                     hashes.SHA256()
             ); return True
         except Exception as e:
-            print(e) 
             return False
 
     def get_string_public_key(self):
@@ -57,7 +56,7 @@ class Client:
         """receive the public key of each node or client."""
         message = self.server_nodes[node_port].recv(1024).decode('utf-8')
         json_message = json.loads(message)
-        print(f"Client {self.client_id} received the public key of the node conncted!")
+        print(f"{GREEN}Client {self.client_id} received the public key of the node conncted!{RESET}")
         public_key_pem = base64.b64decode(json_message["public-key"].encode('utf-8'))
         public_key = serialization.load_pem_public_key(public_key_pem)
         return public_key
@@ -73,24 +72,23 @@ class Client:
             self.server_nodes[node_port] = node_socket
             print(f"Client {self.client_id} connected to node {node_port}")
             self.send_message(node_port, {"public-key" : self.get_string_public_key()})
-            print(f"Client {self.client_id} sent its public key to peer {node_port}")
+            print(f"{BLUE}Client {self.client_id} sent its public key to replica {node_port}{RESET}")
             public_key_pem = self.receive_public_key(node_port)
             threading.Thread(target=self.handle_message, args=(node_port, public_key_pem)).start()
         except Exception as e:
-            print(f"Client {self.client_id} failed to connect to node {node_port}: {e}")
+            print(f"{RED}Client {self.client_id} failed to connect to node {node_port}: {e}{RESET}")
 
     def send_message(self, node_port, json_message):
         """send a message to a node."""
         try:
             self.server_nodes[node_port].sendall(json.dumps(json_message).encode('utf-8'))
-            print(f"Client {self.client_id} sent message to node {node_port}: {json_message}")
+            print(f"{BLUE}Client {self.client_id} sent message to node {node_port}: {json_message}{RESET}")
         except Exception as e:
-            print(f"Failed to send message to node {node_port}: {e}")
+            print(f"{RED}Failed to send message to node {node_port}: {e}{RESET}")
     
     def handle_message(self, node_port, public_key_pem):
         """receive the messages from nodes."""
         while True:
-            print("I'm waiting for reply!")
             message = self.server_nodes[node_port].recv(1024).decode('utf-8')
             message = json.loads(message)
             print(f"Client {self.client_id} received message from {node_port}: {message}")
@@ -98,13 +96,11 @@ class Client:
 
     def process_message(self, packet, public_key_pem):
         """process the PBFT message reply."""
-        print("I'm going to process the packet")
         json_message = json.loads(packet["message"])
         phase = json_message["phase"]
-        f = 1
         if phase == "REPLY":
             if self.accept_reply_message(packet, public_key_pem):
-                print(GREEN, "I received the node reply", RESET)
+                print(f"{GREEN}Client received a REPLY message{RESET}")
                 self.reply_log.append(json_message)
 
     def accept_reply_message(self, packet, replica_public_key):
@@ -118,14 +114,14 @@ class Client:
         else: return False
     
     def check_for_enough_replies(self, t):
-        f = 1
         while True:
             tt =  self.count_max_replies(t)
-            predicate = (tt >= f + 1)
-            print("====== inside check_for_enough_replies ======")
+            predicate = (tt >= max_faulty_nodes + 1)
             print(f"enough_replies({t}) = {predicate}")
             time.sleep(1)
-            if predicate: print(self.reply_log); self.reply_log.clear(); return
+            if predicate: 
+                print(f"{RED}Client received at least f + 1 = {max_faulty_nodes + 1} replies from replicas{RESET}"); 
+                self.reply_log.clear(); return
         
     def count_max_replies(self, t):
         r_count = defaultdict(int)
@@ -137,6 +133,7 @@ if __name__ == '__main__':
     client_id = int(sys.argv[1])
     nodes_num = int(sys.argv[2])
     base_port = int(sys.argv[3])
+    max_faulty_nodes = int(sys.argv[4])
     curr_view = 0
     primary_id = curr_view % nodes_num
 
@@ -147,7 +144,7 @@ if __name__ == '__main__':
         client.connect_to_server('localhost', base_port + i)
     
     while True:
-        o = input()
+        o = input("Enter a request as a string : ")
         json_request = {"phase": "REQUEST",
                         "o": o,
                         "t": time.time(),
