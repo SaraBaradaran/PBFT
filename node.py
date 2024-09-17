@@ -9,9 +9,11 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.asymmetric import utils
 from cryptography.hazmat.primitives import serialization
-GREEN = "\033[92m"; RED = "\033[91m"; RESET = "\033[0m"
+GREEN = "\033[92m"; RED = "\033[91m"; BLUE = "\033[34m"; RESET = "\033[0m"
 
 client_public_key = ""; client_connectin = ""
+h = 1; H = 20; seq_no = 1
+max_faulty_nodes = 0
 
 class Node:
     def __init__(self, node_id, nodes_num):
@@ -61,7 +63,7 @@ class Node:
         """receive the public key of each node or client."""
         message = conn.recv(1024).decode('utf-8')
         json_message = json.loads(message)
-        print(f"Node {self.node_id} received the public key of the node conncted!")
+        print(f"{GREEN}Node {self.node_id} received the public key of the node conncted!{RESET}")
         public_key_pem = base64.b64decode(json_message["public-key"].encode('utf-8'))
         public_key = serialization.load_pem_public_key(public_key_pem)
         return public_key
@@ -86,7 +88,9 @@ class Node:
                 global client_public_key; client_public_key = public_key_pem
                 global client_connectin; client_connectin = conn
                 self.send_message_to_client({"public-key" : self.get_string_public_key()})
-                print(f"Node {self.node_id} sent its public key to the clinet")
+                print(f"{BLUE}Node {self.node_id} sent its public key to the clinet{RESET}")
+            # for each connected node, we will run a thread to continuesly receive the messsages
+            # and handle them based on the message type (PREPARE, COMMIT, etc).
             threading.Thread(target=self.handle_message, args=(conn, public_key_pem)).start()
     
     def handle_message(self, conn, public_key_pem):
@@ -95,6 +99,7 @@ class Node:
             message = conn.recv(1024).decode('utf-8')
             message = json.loads(message)
             print(f"Node {self.node_id} received message: {message}")
+            # process each message based on its type and the state of the protocol
             threading.Thread(target=self.process_message, args=(message, public_key_pem)).start()
         
     def connect_to_peer(self, peer_host, peer_port):
@@ -105,25 +110,25 @@ class Node:
             self.peers[peer_port] = peer_socket
             print(f"Node {self.node_id} connected to peer {peer_port}")
             self.send_message(peer_port, {"public-key" : self.get_string_public_key()})
-            print(f"Node {self.node_id} sent its public key to peer {peer_port}")
+            print(f"{BLUE}Node {self.node_id} sent its public key to peer {peer_port}{RESET}")
         except Exception as e:
-            print(RED, f"Node {self.node_id} failed to connect to peer {peer_port}: {e}", RESET)
+            print(f"{RED}Node {self.node_id} failed to connect to peer {peer_port}: {e}{RESET}")
 
     def send_message(self, peer_port, json_message):
         """send a message to a peer."""
         try:
             self.peers[peer_port].sendall(json.dumps(json_message).encode('utf-8'))
-            print(f"Node {self.node_id} sent message to peer {peer_port}: {json_message}")
+            print(f"{BLUE}Node {self.node_id} sent message to peer {peer_port}: {json_message}{RESET}")
         except Exception as e:
-            print(RED, f"Failed to send message to peer {peer_port}: {e}", RESET)
+            print(f"{RED}Failed to send message to peer {peer_port}: {e}{RESET}")
 
     def send_message_to_client(self, json_message): 
         """send a message to the client."""
         try:
             client_connectin.sendall(json.dumps(json_message).encode('utf-8'))
-            print(f"Node {self.node_id} sent message to the client: {json_message}")
+            print(f"{BLUE}Node {self.node_id} sent message to the client: {json_message}{RESET}")
         except Exception as e:
-            print(RED, f"Failed to send message to the client: {e}", RESET)                      
+            print(f"{RED}Failed to send message to the client: {e}{RESET}")                      
     
     def get_digest(self, json_message):
         """get the message digest produced by collision-resistant hash function"""
@@ -135,12 +140,13 @@ class Node:
 
     def broadcast_preprepare_message(self, client_req):
         """broadcast the pre-prepare message to all peers."""
-        print(GREEN, "I'm going to broadcast PRE-PREPARE message", RESET)
+        print(f"{GREEN}Node {self.node_id} is going to broadcast PRE-PREPARE message{RESET}")
+        global seq_no; seq_no = seq_no + 1
         json_request = json.loads(client_req["message"])
         self.message_log.append(json_request)
         json_message = {"phase": "PRE-PREPARE",
                         "v": self.view,
-                        "n": 12,
+                        "n": seq_no,
                         "d": self.get_digest(json_request)}
         self.message_log.append(json_message)
         string_message = json.dumps(json_message)
@@ -158,7 +164,7 @@ class Node:
     
     def broadcast_prepare_message(self, preprepare_msg):
         """broadcast the prepare message to all peers."""
-        print(GREEN, "I'm going to broadcast PREPARE message", RESET)
+        print(f"{GREEN}Node {self.node_id} is going to broadcast PREPARE message{RESET}")
         json_request = json.loads(preprepare_msg["client_req"]["message"])
         self.message_log.append(json_request)
         json_preprepare_msg = json.loads(preprepare_msg["message"])
@@ -177,7 +183,7 @@ class Node:
             
     def broadcast_commit_message(self, v, n, d):
         """broadcast the commit message to all peers."""
-        print(GREEN, "I'm going to broadcast COMMIT message", RESET)
+        print(f"{GREEN}Node {self.node_id} is going to broadcast COMMIT message{RESET}")
         json_message = {"phase": "COMMIT",
                         "v": v,
                         "n": n,
@@ -191,21 +197,20 @@ class Node:
                                           "message": string_message}) 
 
     def check_for_commit(self, m, v, n):
-        d = self.get_digest(m); f = 1
+        d = self.get_digest(m)
         json_message = {"phase": "PRE-PREPARE",
                         "v": v,
                         "n": n,
                         "d": d}
         while True:
             t = self.count_logs(v, n, d, "PREPARE")
-            predicate = (m in self.message_log and json_message in self.message_log and t >= 2 * f)
-            print("====== inside check_for_commit ======")
+            predicate = (m in self.message_log and json_message in self.message_log and t >= 2 * max_faulty_nodes)
             print(f"prepared(m, {v}, {n}, {self.node_id}) = {predicate}")
             time.sleep(1)
             if predicate: self.broadcast_commit_message(v, n, d); return
 
     def check_for_execution(self, m, v, n):            
-        d = self.get_digest(m); f = 1
+        d = self.get_digest(m)
         json_message = {"phase": "PRE-PREPARE",
                         "v": v,
                         "n": n,
@@ -214,14 +219,13 @@ class Node:
             t1 = self.count_logs(v, n, d, "PREPARE")
             t2 = self.count_logs(v, n, d,  "COMMIT")
             predicate = (m in self.message_log and json_message in self.message_log 
-                                               and t1 >= 2 * f and t2 >= (2 * f + 1))
-            print("====== inside check_for_execution ======")
+                            and t1 >= 2 * max_faulty_nodes and t2 >= (2 * max_faulty_nodes + 1))
             print(f"committed-local(m, {v}, {n}, {self.node_id}) = {predicate}")
             time.sleep(1)
             if predicate: 
-                print("Hey! I successfully executed the operation!"); 
+                print(f"{RED}Hey! Node {self.node_id} successfully executed the operation!{RESET}"); 
                 self.state += m["o"]
-                print(self.state); 
+                print(f"{RED}The current state of node {self.node_id} is {self.state}!{RESET}"); 
                 self.send_reply_message(m); return
             
     def send_reply_message(self, client_req):
@@ -246,16 +250,15 @@ class Node:
             
     def process_message(self, packet, public_key_pem):
         """process the PBFT message based on the phase."""
-        print("I'm going to process the packet")
         json_message = json.loads(packet["message"])
         phase = json_message["phase"]
 
         if phase == "REQUEST" and self.is_primary:
-            print(GREEN, "I received the client request", RESET)
+            print(f"{GREEN}Node {self.node_id} received the client request{RESET}")
             self.broadcast_preprepare_message(packet)
         elif phase == "PRE-PREPARE" and not self.is_primary:
             if self.accept_preprepare_message(packet, public_key_pem):
-                print(GREEN, "I accepted the PRE-PREPARE message", RESET)
+                print(f"{GREEN}Node {self.node_id} accepted the PRE-PREPARE message{RESET}")
                 self.broadcast_prepare_message(packet)
                 json_request = json.loads(packet["client_req"]["message"])
                 # run a thread to continuously check whether prepared(m, v, n, i) is true
@@ -267,11 +270,11 @@ class Node:
         elif phase == "PREPARE":
             if self.accept_prepare_message(packet, public_key_pem):
                 self.message_log.append(json_message)
-                print(GREEN, "I accepted the PREPARE message", RESET)
+                print(f"{GREEN}Node {self.node_id} accepted the PREPARE message{RESET}")
         elif phase == "COMMIT":
             if self.accept_commit_message(packet, public_key_pem):
                 self.message_log.append(json_message)
-                print(GREEN, "I accepted the COMMIT message", RESET)
+                print(f"{GREEN}Node {self.node_id} accepted the COMMIT message{RESET}")
 
     def accept_preprepare_message(self, packet, primary_public_key):
         signed_message = packet["signed_message"]
@@ -286,7 +289,6 @@ class Node:
         valid_primary_msg = self.verify_signature(primary_public_key, string_message, signed_message)
         valid_request = self.verify_signature(client_public_key, string_request, signed_request)
         valid_digest = (self.get_digest(json_request) == json_message["d"])
-        h = 10; H = 20
         valid_sequence = (h < json_message["n"] and json_message["n"] < H)
         valid_view = (self.view == json_message["v"])
         no_previous_request = True
@@ -305,7 +307,6 @@ class Node:
         
         valid_msg = self.verify_signature(replica_public_key, string_message, signed_message)
         valid_view = (self.view == json_message["v"])
-        h = 10; H = 20
         valid_sequence = (h < json_message["n"] and json_message["n"] < H)
 
         if valid_msg and valid_view and valid_sequence: return True
@@ -318,7 +319,6 @@ class Node:
         
         valid_msg = self.verify_signature(replica_public_key, string_message, signed_message)
         valid_view = (self.view == json_message["v"])
-        h = 10; H = 20
         valid_sequence = (h < json_message["n"] and json_message["n"] < H)
 
         if valid_msg and valid_view and valid_sequence: return True
@@ -328,6 +328,7 @@ if __name__ == '__main__':
     nodes_num = int(sys.argv[1])
     base_port = int(sys.argv[2])
     node_id = int(sys.argv[3])
+    max_faulty_nodes = int(sys.argv[4])
     
     node_port = base_port + node_id
     node = Node(node_id=node_id, nodes_num=nodes_num)
