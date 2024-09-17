@@ -1,2 +1,3 @@
 # PBFT
-This repository contains my answers for Assignment 1
+### Model Summary
+This implementation assumes that given N distributed nodes, among which at most f ones are faulty, in the beginning, each node tries to connect to other nodes by calling the method `connect_to_peer`. Similarly, the client also connects to all the nodes within the network by establishing a TCP connection. Upon connecting each peer or the client, the two sides of the connection will exchange their public keys. Now, the system is ready to get the client's request and execute the operations requested. For simplicity, I assume the state of each node would be shown by a strign `state`. For simplicity, the client, each time, will get a string `o` from stdin and send a request (`<REQUEST, o, t, id>` signed by client) to the primary. This request means that append the string `o` at the end of string `state` kept and changed by each node independently.
