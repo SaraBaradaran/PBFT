@@ -143,8 +143,10 @@ if __name__ == '__main__':
     for i in range(nodes_num):
         client.connect_to_server('localhost', base_port + i)
     
+    print("Enter a request as a string : ")
+    
     while True:
-        o = input("Enter a request as a string : ")
+        o = input()
         json_request = {"phase": "REQUEST",
                         "o": o,
                         "t": time.time(),
