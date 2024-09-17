@@ -9,8 +9,8 @@ After accepting the PRE-PREPARE message by a non-primary replica or after broadc
 After sending a request, the client runs a thread to continuously check if `f+1` REPLY messages has been received from different nodes with valid signatures, the same `t` as it was in the request, and the same result `r.`  This means that the requested operation has been done successfully, and the client is ready to get another request from stdin and send it to the primary again.
 
 ### How to run the protocol?
-There is a file `init.py` in this repository using which you can specify the total number of nodes and the maximum number of Byzantine nodes.
-To run the system and PBFT protocol, run the following command:
+There is a file `init.py` in this repository using which you can specify the total number of nodes and the maximum number of Byzantine nodes. To run the system and PBFT protocol, run the following command:
 ```
 python3 init.py
 ```
+This script opens `N + 1` different terminals for `N` nodes and a client. Upon running the script, you can see how the nodes exchange their public keys when connecting to each peer. When you see the message `Enter a request as a string:` on the client's terminal, enter a string and press enter to see how it will change the states of distributed nodes by using PBFT protocol. Also, when you see the message `Client received at least f + 1 = X replies from replicas` on the client's terminal, it means that the operation is done and the client is waiting for the next request.
