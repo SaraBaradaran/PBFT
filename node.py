@@ -293,8 +293,8 @@ class Node:
         valid_view = (self.view == json_message["v"])
         no_previous_request = True
         for log in self.message_log:
-            if (log["phase"] == "PRE-PREPARE" and log["d"] == json_message["d"] 
-            and (log["v"] == json_message["v"] or log["n"] == json_message["n"])):
+            if (log["phase"] == "PRE-PREPARE" and log["d"] != json_message["d"] 
+            and log["v"] == json_message["v"] and log["n"] == json_message["n"]):
                 no_previous_request = False
         if (valid_primary_msg and valid_request and no_previous_request
             and valid_view and valid_digest and valid_sequence): return True
